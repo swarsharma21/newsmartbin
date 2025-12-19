@@ -16,8 +16,6 @@ from streamlit_folium import st_folium
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, r2_score
-from ortools.constraint_solver import routing_enums_pb2
-from ortools.constraint_solver import pywrapcp
 
 # --- Page Configuration ---
 st.set_page_config(page_title="Smart Bin Analytics", layout="wide")
