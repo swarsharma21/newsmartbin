@@ -43,7 +43,7 @@ def load_data():
             'bin_location_lat': [19.0760],
             'bin_location_lon': [72.8777]
         })
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
     return df
 
 df = load_data()
