@@ -7,7 +7,6 @@ folium
 streamlit-folium
 scikit-learn
 ortools
-ortools
 plotly
 streamlit
 pandas
