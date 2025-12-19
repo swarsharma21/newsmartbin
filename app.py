@@ -479,7 +479,7 @@ def load_data():
     except: return None
 
 def get_dist(p1, p2):
-    return ((p1[0]-p2[0])*2 + (p1[1]-p2[1])2)*0.5
+    return ((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)**0.5
 
 @st.cache_resource
 def get_map():
