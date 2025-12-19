@@ -346,7 +346,7 @@ elif page == "Impact & Financial Analysis":
     By integrating *Recycling Revenue* (₹{revenue_gain:,.0f}/mo) and *Penalty Avoidance* (₹{penalty_savings:,.0f}/mo) with standard operational savings,
     the system pays for its hardware in *{months_breakeven:.1f} months*, creating a sustainable profit model for the municipality.
     """)
-    import streamlit as st
+import streamlit as st
 import pandas as pd
 import osmnx as ox
 import networkx as nx
