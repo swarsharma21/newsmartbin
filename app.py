@@ -37,17 +37,8 @@ def load_data():
             'bin_location_lat': [19.0760],
             'bin_location_lon': [72.8777]
         }) # <--- CHECK IF THIS IS MISSING
-            'bin_id': ['B101'], 
-            'hour_of_day': [10], 
-            'day_of_week': ['Monday'], 
-            'ward': ['Ward_A'], 
-            'area_type': ['Residential'], 
-            'time_since_last_pickup': [24], 
-            'bin_fill_percent': [50], 
-            'bin_capacity_liters': [1000],
-            'bin_location_lat': [19.0760],
-            'bin_location_lon': [72.8777]
-        })
+            
+        
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     return df
 
