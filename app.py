@@ -61,20 +61,105 @@ page = st.sidebar.radio("Go to", ["Home", "Exploratory Data Analysis", "Predicti
 
 if page == "Home":
     st.title("Smart Waste Management Analytics Dashboard")
-    st.write("Welcome! This dashboard provides a comprehensive overview of the Smart Bin project.")
-    if df is not None: st.dataframe(df.head())
+    st.write("Welcome! This dashboard provides a comprehensive overview of the Smart Bin project's data science components.")
+    st.subheader("Project Overview")
+    st.write("""
+    - *Live Data:* A physical prototype sends real-time fill-level data to a cloud dashboard.
+    - *Historical Analysis:* We analyze a large dataset to understand waste generation patterns.
+    - *Predictive Modeling:* A machine learning model forecasts when bins will become full.
+    - *Route Optimization:* An algorithm calculates the most efficient collection route for full bins.
+    - *Financial Impact:* A comprehensive model calculating ROI, carbon credits, and operational savings.
+    """)
+    st.subheader("Dataset at a Glance")
+    st.dataframe(df.head())
+    st.write(f"The dataset contains *{len(df)}* hourly readings from *{df['bin_id'].nunique()}* simulated smart bins.")
 
+
+# --- EDA Page ---
 elif page == "Exploratory Data Analysis":
     st.title("Exploratory Data Analysis (EDA)")
-    if df is not None:
-        hourly_fill = df.groupby(['hour_of_day', 'area_type'])['fill'].mean().reset_index()
-        fig1 = px.line(hourly_fill, x='hour_of_day', y='fill', color='area_type', title='Avg Fill % by Hour')
-        st.plotly_chart(fig1, use_container_width=True)
+    st.write("These charts are now interactive. You can zoom, pan, and hover over the data.")
+    
+    st.subheader("Average Bin Fill Percentage by Hour of Day")
+    hourly_fill_pattern = df.groupby(['hour_of_day', 'area_type'])['bin_fill_percent'].mean().reset_index()
+    fig1 = px.line(hourly_fill_pattern, 
+                   x='hour_of_day', 
+                   y='bin_fill_percent', 
+                   color='area_type',
+                   title='Average Bin Fill Percentage by Hour of Day',
+                   labels={'hour_of_day': 'Hour of Day', 'bin_fill_percent': 'Average Fill Level (%)'})
+    st.plotly_chart(fig1, use_container_width=True)
+
+    st.subheader("Average Bin Fill Percentage by Day of the Week")
+    daily_avg = df.groupby('day_of_week')['bin_fill_percent'].mean().reset_index()
+    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    fig2 = px.bar(daily_avg, 
+                  x='day_of_week', 
+                  y='bin_fill_percent',
+                  category_orders={"day_of_week": day_order},
+                  title='Average Bin Fill Percentage by Day of the Week',
+                  labels={'day_of_week': 'Day of the Week', 'bin_fill_percent': 'Average Fill Level (%)'})
+    st.plotly_chart(fig2, use_container_width=True)
 
 elif page == "Predictive Model":
     st.title("Predictive Model for Bin Fill Level")
-    st.info("Random Forest Model Analysis")
+    
+    with st.spinner("Preparing data and training model..."):
+        features_to_use = ['hour_of_day', 'day_of_week', 'ward', 'area_type', 'time_since_last_pickup']
+        target_variable = 'bin_fill_percent'
+        model_df = df[features_to_use + [target_variable]].copy()
+        
+        for feature in ['day_of_week', 'ward', 'area_type']:
+            if feature in model_df.columns:
+                 model_df = pd.get_dummies(model_df, columns=[feature], prefix=feature, drop_first=True)
+            
+        X = model_df.drop(target_variable, axis=1, errors='ignore')
+        y = model_df[target_variable]
+        
+        if len(X) < 2:
+            st.warning("Insufficient data to train the model after preprocessing.")
+            mae, r2 = np.nan, np.nan
+            predictions = pd.Series([0])
+            y_test = pd.Series([0])
+        else:
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            model = RandomForestRegressor(n_estimators=50, random_state=42, n_jobs=-1)
+            model.fit(X_train, y_train)
+            predictions = model.predict(X_test)
+            mae = mean_absolute_error(y_test, predictions)
+            r2 = r2_score(y_test, predictions)
 
+    st.subheader("Model Performance")
+    col1, col2 = st.columns(2)
+    col1.metric("Mean Absolute Error (MAE)", f"{mae:.2f}%")
+    col2.metric("R-squared (R²) Score", f"{r2:.2f}")
+
+    st.subheader("Interactive Analysis of Model Predictions")
+    
+    if len(y_test) > 10:
+        plot_data = pd.DataFrame({'Actual': y_test, 'Predicted': predictions})
+        plot_data['Error'] = abs(plot_data['Actual'] - plot_data['Predicted'])
+        plot_data_sample = plot_data.sample(min(5000, len(plot_data)), random_state=42)
+        
+        fig = px.scatter(
+            plot_data_sample, 
+            x='Actual', 
+            y='Predicted',
+            color='Error',
+            color_continuous_scale=px.colors.sequential.Viridis,
+            marginal_x='histogram',
+            marginal_y='histogram',
+            hover_name=plot_data_sample.index,
+            hover_data={'Actual': ':.2f', 'Predicted': ':.2f', 'Error': ':.2f'},
+            title="Actual vs. Predicted Fill Levels (Colored by Prediction Error)",
+            template='plotly_white'
+        )
+
+        fig.add_shape(type='line', x0=0, y0=0, x1=100, y1=100, line=dict(color='Red', width=2, dash='dash'))
+        fig.update_layout(xaxis_title='Actual Fill Level (%)', yaxis_title='Predicted Fill Level (%)')
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Not enough test data points to generate a meaningful scatter plot.")
 elif page == "Route Optimization":
     st.title("🚛 AI Multi-Fleet Mission Control")
     # NEW ROUTE CODE START
