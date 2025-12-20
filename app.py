@@ -7,15 +7,11 @@ from streamlit_folium import st_folium
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, r2_score
-import osmnx as ox
-import networkx as nx
-import qrcode
-from io import BytesIO
-import os
 
-# --- 1. Page Configuration ---
+# --- Page Configuration ---
 st.set_page_config(page_title="Smart Bin Analytics", layout="wide")
 
+# --- Load and Cache Data ---
 @st.cache_data
 def load_data():
     try:
@@ -24,8 +20,7 @@ def load_data():
         st.error("Error: 'data.csv' not found. Using dummy data.")
         # Create a dummy DataFrame to prevent script crash
         df = pd.DataFrame({
-            
-            'timestamp': ['01-01-2025 10:00'], 
+            'timestamp': pd.to_datetime(['2025-01-01 10:00:00']), 
             'bin_id': ['B101'], 
             'hour_of_day': [10], 
             'day_of_week': ['Monday'], 
@@ -36,28 +31,18 @@ def load_data():
             'bin_capacity_liters': [1000],
             'bin_location_lat': [19.0760],
             'bin_location_lon': [72.8777]
-        }) # <--- CHECK IF THIS IS MISSING
-            
-        
+        })
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     return df
 
 df = load_data()
-GARAGES = {
-    "Truck 1 (Worli)": (19.0178, 72.8478),
-    "Truck 2 (Bandra)": (19.0596, 72.8295),
-    "Truck 3 (Andheri)": (19.1136, 72.8697),
-    "Truck 4 (Kurla)": (19.0726, 72.8844),
-    "Truck 5 (Borivali)": (19.2307, 72.8567)
-}
-DEONAR_DUMPING = (19.0550, 72.9250)
 
 # --- Sidebar Navigation ---
 st.sidebar.title("Navigation")
 # FIX: Added "Impact & Financial Analysis" to the list below
 page = st.sidebar.radio("Go to", ["Home", "Exploratory Data Analysis", "Predictive Model", "Route Optimization", "Impact & Financial Analysis"])
-# --- 4. Page Logic ---
 
+# --- Home Page ---
 if page == "Home":
     st.title("Smart Waste Management Analytics Dashboard")
     st.write("Welcome! This dashboard provides a comprehensive overview of the Smart Bin project's data science components.")
@@ -66,13 +51,12 @@ if page == "Home":
     - *Live Data:* A physical prototype sends real-time fill-level data to a cloud dashboard.
     - *Historical Analysis:* We analyze a large dataset to understand waste generation patterns.
     - *Predictive Modeling:* A machine learning model forecasts when bins will become full.
-    - *Route Optimization:* An algorithm calculates the most efficient collection route for full bins.
+   
     - *Financial Impact:* A comprehensive model calculating ROI, carbon credits, and operational savings.
     """)
     st.subheader("Dataset at a Glance")
     st.dataframe(df.head())
     st.write(f"The dataset contains *{len(df)}* hourly readings from *{df['bin_id'].nunique()}* simulated smart bins.")
-
 
 # --- EDA Page ---
 elif page == "Exploratory Data Analysis":
@@ -100,6 +84,7 @@ elif page == "Exploratory Data Analysis":
                   labels={'day_of_week': 'Day of the Week', 'bin_fill_percent': 'Average Fill Level (%)'})
     st.plotly_chart(fig2, use_container_width=True)
 
+# --- Predictive Model Page ---
 elif page == "Predictive Model":
     st.title("Predictive Model for Bin Fill Level")
     
@@ -159,143 +144,194 @@ elif page == "Predictive Model":
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Not enough test data points to generate a meaningful scatter plot.")
-elif page == "Route Optimization":
-    st.title("🚛 AI Multi-Fleet Mission Control")
-    # NEW ROUTE CODE START
-    if df is not None:
-        st.sidebar.header("🕹 Dispatch Controls")
-        selected_truck = st.sidebar.selectbox("Select Active Truck", list(GARAGES.keys()))
-        threshold = st.sidebar.slider("Fill Threshold (%)", 0, 100, 75)
-        times = sorted(df['timestamp'].unique())
-        sim_time = st.sidebar.select_slider("Select Time", options=times)
-        df_snap = df[df['timestamp'] == sim_time].copy()
 
-        def assign_truck(row):
-            loc = (row['lat'], row['lon'])
-            dists = {name: get_dist(loc, coords) for name, coords in GARAGES.items()}
-            return min(dists, key=dists.get)
 
-        df_snap['assigned_truck'] = df_snap.apply(assign_truck, axis=1)
-        all_my_bins = df_snap[(df_snap['assigned_truck'] == selected_truck) & (df_snap['fill'] >= threshold)]
-        
-        st.sidebar.subheader("📦 Trip Pipeline")
-        bins_per_trip = 8
-        num_trips = (len(all_my_bins) // bins_per_trip) + (1 if len(all_my_bins) % bins_per_trip > 0 else 0)
-        
-        if num_trips > 0:
-            trip_num = st.sidebar.selectbox(f"Select Trip", range(1, num_trips + 1), format_func=lambda x: f"Trip {x}")
-            current_mission_bins = all_my_bins.iloc[(trip_num-1)*bins_per_trip : trip_num*bins_per_trip]
-            
-            G = get_map_graph()
-            m = folium.Map(location=[19.0760, 72.8777], zoom_start=12, tiles="CartoDB positron")
-            for _, row in df_snap.iterrows():
-                color = 'red' if row['fill'] >= threshold and row['assigned_truck'] == selected_truck else 'green'
-                folium.Marker([row['lat'], row['lon']], icon=folium.Icon(color=color, icon='trash', prefix='fa')).add_to(m)
-            
-            st_folium(m, width=1200, height=500, key="route_map")
-            
-            # QR Code Generation
-            google_url = f"https://www.google.com/maps/dir/{GARAGES[selected_truck][0]},{GARAGES[selected_truck][1]}/" + "/".join([f"{r.lat},{r.lon}" for _, r in current_mission_bins.iterrows()]) + f"/{DEONAR_DUMPING[0]},{DEONAR_DUMPING[1]}"
-            qr = qrcode.make(google_url)
-            buf = BytesIO(); qr.save(buf)
-            st.image(buf, width=200)
-    # NEW ROUTE CODE END
 
+# --- Impact & Financial Analysis Page (New Section) ---
 elif page == "Impact & Financial Analysis":
     st.title("💎 Comprehensive Business & Impact Model")
     st.markdown("### The 360° Value Proposition")
     st.write("This advanced model evaluates the project's viability across four dimensions: *Operational Savings, **Revenue Generation, **Strategic Cost Avoidance, and **Environmental Monetization*.")
 
-    # --- YOUR ORIGINAL SIDEBAR CONTROLS ---
+    # --- 1. THE CONTROL CENTER (Sidebar) ---
     st.sidebar.header("⚙ Simulation Parameters")
+
+    # [TOGGLE] EV FLEET SWITCH
     is_ev = st.sidebar.checkbox("⚡ Activate Electric Vehicle (EV) Fleet Mode")
-    
+
+    # A. CAPEX (One-time Investment)
     st.sidebar.subheader("1. CAPEX (Initial Investment)")
     num_trucks = st.sidebar.number_input("Fleet Size (Trucks)", value=5, min_value=1)
     hardware_cost_per_bin = st.sidebar.number_input("Hardware Cost/Bin (₹)", value=1500)
     total_bins = st.sidebar.number_input("Total Smart Bins", value=100)
     software_dev_cost = st.sidebar.number_input("Software/Cloud Setup Cost (₹)", value=50000)
 
+    # B. OPEX (Recurring Costs)
     st.sidebar.subheader("2. OPEX (Operational)")
     driver_wage = st.sidebar.slider("Staff Hourly Wage (₹)", 100, 500, 200)
     
+    # Dynamic Fuel/Energy Inputs
     if is_ev:
+        st.sidebar.markdown("--- *⚡ EV Settings* ---")
         fuel_price = st.sidebar.number_input("Electricity Cost (₹/kWh)", value=10.0)
         truck_efficiency = st.sidebar.number_input("EV Efficiency (km/kWh)", value=1.5)
-        co2_factor, fuel_label = 0.82, "Electricity"
+        co2_factor = 0.82 # kg CO2 per kWh (Grid Average)
+        fuel_label = "Electricity"
+        fuel_unit = "kWh"
     else:
+        st.sidebar.markdown("--- *⛽ Diesel Settings* ---")
         fuel_price = st.sidebar.number_input("Diesel Price (₹/Liter)", value=104.0)
         truck_efficiency = st.sidebar.number_input("Truck Mileage (km/L)", value=4.0)
-        co2_factor, fuel_label = 2.68, "Fuel"
+        co2_factor = 2.68 # kg CO2 per Liter
+        fuel_label = "Fuel"
+        fuel_unit = "L"
 
+    # Maintenance & Connectivity
     maintenance_per_km = st.sidebar.number_input("Vehicle Maint. (₹/km)", value=5.0)
-    cloud_cost_per_bin = st.sidebar.number_input("Cloud/Data Cost per Bin/Month (₹)", value=20)
-
+    cloud_cost_per_bin = st.sidebar.number_input("Cloud/Data Cost per Bin/Month (₹)", value=20) # SIM card/Cloud sub
+    
+    # C. REVENUE & AVOIDANCE (The "Hidden" Value)
     st.sidebar.subheader("3. Revenue & Strategic Value")
+    
+    # Recycling Revenue
     recyclable_value_per_kg = st.sidebar.number_input("Avg. Recyclable Value (₹/kg)", value=15.0)
-    recycling_rate_increase = st.sidebar.slider("Recycling Efficiency Boost (%)", 0, 50, 20)
+    recycling_rate_increase = st.sidebar.slider("Recycling Efficiency Boost (%)", 0, 50, 20) 
+    # (Assumption: Smart routing allows better segregation or cleaner pickup)
     daily_waste_collected_kg = st.sidebar.number_input("Total Daily Waste (kg)", value=2000.0)
+    
+    # Penalty Avoidance (SLA)
     penalty_per_overflow = st.sidebar.number_input("Fine per Overflowing Bin (₹)", value=500)
     overflows_prevented_month = st.sidebar.slider("Overflows Prevented/Month", 0, 100, 25)
+    
+    # Carbon Credits
     carbon_credit_price = st.sidebar.number_input("Carbon Credit Price (₹/Ton CO2)", value=1500.0)
 
+    # D. ROUTE SCENARIOS
     st.sidebar.subheader("4. Logistics Efficiency")
+    st.sidebar.markdown("🔴 Traditional (Fixed)")
     dist_old = st.sidebar.number_input("Daily Dist. Fixed (km)", value=60.0)
     trips_old = st.sidebar.slider("Trips/Month (Fixed)", 15, 30, 30)
     hours_old = st.sidebar.number_input("Hours/Trip (Fixed)", value=7.0)
+    
+    st.sidebar.markdown("🟢 Smart (Optimized)")
     dist_new = st.sidebar.number_input("Daily Dist. Smart (km)", value=40.0)
     trips_new = st.sidebar.slider("Trips/Month (Smart)", 15, 30, 24)
     hours_new = st.sidebar.number_input("Hours/Trip (Smart)", value=5.0)
 
-    # --- YOUR ORIGINAL CALCULATIONS ---
+    # --- 2. THE CALCULATION ENGINE ---
+    
+    # CAPEX
     total_capex = (hardware_cost_per_bin * total_bins) + software_dev_cost
-
+    
+    # Function to calculate Core OPEX
     def calc_opex(dist, trips, hours):
         total_dist = dist * trips * num_trucks
         total_hours = hours * trips * num_trucks
+        
         energy_consumed = total_dist / truck_efficiency
         energy_cost = energy_consumed * fuel_price
+        
         labor_cost = total_hours * driver_wage
         maint_cost = total_dist * maintenance_per_km
+        
+        # Cloud costs (only applies to Smart System really, but added for completeness)
+        
         co2_kg = energy_consumed * co2_factor
-        return {"energy": energy_cost, "labor": labor_cost, "maint": maint_cost, "total_opex": energy_cost + labor_cost + maint_cost, "co2": co2_kg}
+        
+        return {
+            "energy": energy_cost,
+            "labor": labor_cost,
+            "maint": maint_cost,
+            "total_opex": energy_cost + labor_cost + maint_cost,
+            "co2": co2_kg,
+            "dist": total_dist
+        }
 
-    old, new = calc_opex(dist_old, trips_old, hours_old), calc_opex(dist_new, trips_new, hours_new)
-    new["total_opex"] += (cloud_cost_per_bin * total_bins)
+    old = calc_opex(dist_old, trips_old, hours_old)
+    new = calc_opex(dist_new, trips_new, hours_new)
+    
+    # Add Cloud Cost to Smart System OPEX
+    smart_cloud_cost = cloud_cost_per_bin * total_bins
+    new["total_opex"] += smart_cloud_cost
 
+    # --- SAVINGS & REVENUE CALCULATIONS ---
+    
+    # 1. Direct Operational Savings
     opex_savings = old["total_opex"] - new["total_opex"]
-    base_revenue = daily_waste_collected_kg * 30 * recyclable_value_per_kg * 0.1
+    
+    # 2. Revenue from Recyclables (Incremental)
+    # Assumption: Smart system improves segregation/collection efficiency by X%
+    base_revenue = daily_waste_collected_kg * 30 * recyclable_value_per_kg * 0.1 # Assuming 10% base recycling rate
     improved_revenue = daily_waste_collected_kg * 30 * recyclable_value_per_kg * (0.1 + (recycling_rate_increase/100))
     revenue_gain = improved_revenue - base_revenue
+    
+    # 3. Cost Avoidance (Penalties)
     penalty_savings = overflows_prevented_month * penalty_per_overflow
+    
+    # 4. Environmental Monetization
     co2_saved_tons = (old["co2"] - new["co2"]) / 1000
     carbon_credit_revenue = co2_saved_tons * carbon_credit_price
+    
+    # TOTAL MONTHLY BENEFIT
     total_monthly_benefit = opex_savings + revenue_gain + penalty_savings + carbon_credit_revenue
+    
+    # ROI
     months_breakeven = total_capex / total_monthly_benefit if total_monthly_benefit > 0 else 0
 
-    # --- YOUR ORIGINAL DASHBOARD UI ---
+    # --- 3. VISUALIZATION DASHBOARD ---
+
+    # KPI ROW
     st.markdown("### 📊 Monthly Financial Snapshot")
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Net Monthly Benefit", f"₹{total_monthly_benefit:,.0f}")
-    k2.metric("Direct OPEX Savings", f"₹{opex_savings:,.0f}")
-    k3.metric("Revenue & Avoidance", f"₹{revenue_gain + penalty_savings:,.0f}")
-    k4.metric("ROI Break-even", f"{months_breakeven:.1f} Months")
+    k1.metric("Net Monthly Benefit", f"₹{total_monthly_benefit:,.0f}", help="Savings + Revenue + Avoided Fines")
+    k2.metric("Direct OPEX Savings", f"₹{opex_savings:,.0f}", delta="Fuel & Labor")
+    k3.metric("Revenue & Avoidance", f"₹{revenue_gain + penalty_savings:,.0f}", delta="New Value Stream")
+    k4.metric("ROI Break-even", f"{months_breakeven:.1f} Months", delta_color="off")
 
     st.markdown("---")
+
+    # DETAILED BREAKDOWN
     c1, c2 = st.columns([2, 1])
+    
     with c1:
-        waterfall_data = pd.DataFrame({"Source": ["Operational Savings", "Recycling Revenue", "Avoided Penalties", "Carbon Credits"], "Amount (₹)": [opex_savings, revenue_gain, penalty_savings, carbon_credit_revenue]})
-        fig_water = px.bar(waterfall_data, x="Source", y="Amount (₹)", color="Source", title="Monthly Value Components")
+        st.subheader("Waterfall: Where is the Value coming from?")
+        waterfall_data = pd.DataFrame({
+            "Source": ["Operational Savings", "Recycling Revenue", "Avoided Penalties", "Carbon Credits"],
+            "Amount (₹)": [opex_savings, revenue_gain, penalty_savings, carbon_credit_revenue]
+        })
+        fig_water = px.bar(waterfall_data, x="Source", y="Amount (₹)", color="Source", 
+                           title="Monthly Value Components", text_auto='.2s')
         st.plotly_chart(fig_water, use_container_width=True)
+        
     with c2:
         st.subheader("Environmental Impact")
         st.metric("CO2 Prevented", f"{co2_saved_tons*1000:,.0f} kg")
         st.metric("Carbon Credit Value", f"₹{carbon_credit_revenue:,.2f}")
+        st.info(f"Equivalent to planting *{int(co2_saved_tons * 1000 / 20)} trees* per month.")
 
+    # CUMULATIVE CASH FLOW (The Investor View)
     st.subheader("📈 3-Year Financial Projection")
-    months_range = range(1, 37)
-    cash_flow = [-total_capex + (total_monthly_benefit * m) for m in months_range]
+    
+    years = 3
+    months_range = range(1, (years * 12) + 1)
+    cash_flow = []
+    current_balance = -total_capex # Start in debt (CAPEX)
+    
+    for m in months_range:
+        current_balance += total_monthly_benefit
+        cash_flow.append(current_balance)
+        
     df_cf = pd.DataFrame({"Month": list(months_range), "Net Cash Flow": cash_flow})
-    fig_cf = px.line(df_cf, x="Month", y="Net Cash Flow", title="Cumulative Cash Flow")
-    fig_cf.add_hline(y=0, line_dash="dash", line_color="green")
+    
+    fig_cf = px.line(df_cf, x="Month", y="Net Cash Flow", title="Cumulative Cash Flow (NPV Proxy)", markers=False)
+    fig_cf.add_hline(y=0, line_dash="dash", line_color="green", annotation_text="Break-even")
+    fig_cf.add_vrect(x0=0, x1=months_breakeven, fillcolor="red", opacity=0.1, annotation_text="Investment Phase")
+    fig_cf.add_vrect(x0=months_breakeven, x1=36, fillcolor="green", opacity=0.1, annotation_text="Profit Phase")
+    
     st.plotly_chart(fig_cf, use_container_width=True)
+    
+    st.success(f"""
+    *Final Verdict:* This project is not just a cost-saver; it is a revenue generator. 
+    By integrating *Recycling Revenue* (₹{revenue_gain:,.0f}/mo) and *Penalty Avoidance* (₹{penalty_savings:,.0f}/mo) with standard operational savings, 
+    the system pays for its hardware in *{months_breakeven:.1f} months*, creating a sustainable profit model for the municipality.
+    """)
