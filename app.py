@@ -25,7 +25,7 @@ def load_data():
         # Create a dummy DataFrame to prevent script crash
         df = pd.DataFrame({
             
-            'timestamp': ['01-01-2025 10:00']), 
+            'timestamp': ['01-01-2025 10:00'], 
             'bin_id': ['B101'], 
             'hour_of_day': [10], 
             'day_of_week': ['Monday'], 
