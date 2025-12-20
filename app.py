@@ -147,93 +147,175 @@ elif page == "Predictive Model":
     else:
         st.info("Not enough test data points to generate a meaningful scatter plot.")
 
-# --- Route Optimization Page ---
-elif page == "Route Optimization":
-    st.title("Vehicle Route Optimization")
+import streamlit as st
+import pandas as pd
+import osmnx as ox
+import networkx as nx
+import folium
+from streamlit_folium import st_folium
+import qrcode
+from io import BytesIO
+import os
 
-    @st.cache_data(show_spinner="Finding the most efficient route...")
-    def solve_and_draw_route(df_data):
-        # Filter bins > 80% full
-        full_bins_sample = df_data[df_data['bin_fill_percent'] > 80].sample(min(10, len(df_data[df_data['bin_fill_percent'] > 80])), random_state=42)
-        
-        if full_bins_sample.empty:
-            return False, None
+# --- 1. SETTINGS ---
+st.set_page_config(page_title="Smart Waste AI Mission Control", layout="wide")
 
-        full_bins_sample['demand_liters'] = (full_bins_sample['bin_fill_percent'] / 100) * full_bins_sample['bin_capacity_liters']
-        
-        depot_location = pd.DataFrame([{'bin_location_lat': 19.05, 'bin_location_lon': 72.85, 'demand_liters': 0, 'bin_id': 'Depot'}], index=[0])
-        route_data = pd.concat([depot_location, full_bins_sample]).reset_index(drop=True)
-        
-        data = {}
-        data['locations'] = list(zip(route_data['bin_location_lat'], route_data['bin_location_lon']))
-        data['demands'] = [int(d) for d in route_data['demand_liters']]
-        data['vehicle_capacities'] = [20000]
-        data['num_vehicles'] = 1
-        data['depot'] = 0
-        
-        manager = pywrapcp.RoutingIndexManager(len(data['locations']), data['num_vehicles'], data['depot'])
-        routing = pywrapcp.RoutingModel(manager)
-        
-        def distance_callback(from_index, to_index):
-            from_node, to_node = manager.IndexToNode(from_index), manager.IndexToNode(to_index)
-            return int(abs(data['locations'][from_node][0] - data['locations'][to_node][0]) * 10000 + abs(data['locations'][from_node][1] - data['locations'][to_node][1]) * 10000)
-        
-        transit_callback_index = routing.RegisterTransitCallback(distance_callback)
-        routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
-        
-        def demand_callback(from_index):
-            from_node = manager.IndexToNode(from_index)
-            return data['demands'][from_node]
-        
-        demand_callback_index = routing.RegisterUnaryTransitCallback(demand_callback)
-        routing.AddDimensionWithVehicleCapacity(demand_callback_index, 0, data['vehicle_capacities'], True, 'Capacity')
-        
-        search_parameters = pywrapcp.DefaultRoutingSearchParameters()
-        search_parameters.first_solution_strategy = (routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC)
-        search_parameters.time_limit.FromSeconds(5)
-        solution = routing.SolveWithParameters(search_parameters)
-        
-        if solution:
-            optimized_route_indices = []
-            index = routing.Start(0)
-            while not routing.IsEnd(index):
-                optimized_route_indices.append(manager.IndexToNode(index))
-                index = solution.Value(routing.NextVar(index))
-            optimized_route_indices.append(manager.IndexToNode(index))
-            optimized_route_coords = [data['locations'][i] for i in optimized_route_indices]
+GARAGES = {
+    "Truck 1 (Worli)": (19.0178, 72.8478),
+    "Truck 2 (Bandra)": (19.0596, 72.8295),
+    "Truck 3 (Andheri)": (19.1136, 72.8697),
+    "Truck 4 (Kurla)": (19.0726, 72.8844),
+    "Truck 5 (Borivali)": (19.2307, 72.8567)
+}
+DEONAR_DUMPING = (19.0550, 72.9250)
 
-            m = folium.Map(location=[19.0760, 72.8777], zoom_start=12)
-            folium.Marker(location=data['locations'][0], popup='Depot', icon=folium.Icon(color='red', icon='home')).add_to(m)
-            
-            for idx, row in route_data.iloc[1:].iterrows():
-                folium.Marker(location=[row['bin_location_lat'], row['bin_location_lon']], 
-                              popup=f"Bin {row['bin_id']} (Demand: {row['demand_liters']:.0f} L)", 
-                              icon=folium.Icon(color='blue', icon='trash')).add_to(m)
-                              
-            folium.PolyLine(locations=optimized_route_coords, color='green', weight=5, opacity=0.8).add_to(m)
-            return True, m
-        else:
-            return False, None
-
-    if 'route_map_status' not in st.session_state:
-        st.session_state.route_map_status = (False, None) 
-
-    if st.button("Calculate Optimized Route for Full Bins"):
-        solved_status, generated_map = solve_and_draw_route(df)
-        st.session_state.route_map_status = (solved_status, generated_map)
+@st.cache_data
+def load_data():
+    all_files = [f for f in os.listdir('.') if f.endswith('.csv')]
+    target = 'data.csv' if 'data.csv' in all_files else (all_files[0] if all_files else None)
+    if not target: return None
+    try:
+        df = pd.read_csv(target, sep=None, engine='python', encoding='utf-8-sig')
+        df.columns = [c.strip().lower() for c in df.columns]
         
-        if solved_status:
-            st.success("Optimized route found!")
-        else:
-            st.error("No solution found.")
+        # --- THE FIX: Standardize BIN_ID and others ---
+        rename_dict = {
+            'bin_location_lat': 'lat', 'bin_location_lon': 'lon',
+            'bin_fill_percent': 'fill', 'timestamp': 'timestamp',
+            'bin_id': 'bin_id', 'bin id': 'bin_id', 'id': 'bin_id'
+        }
+        for old, new in rename_dict.items():
+            for col in df.columns:
+                if old == col:
+                    df = df.rename(columns={col: new})
+        
+        df['timestamp'] = pd.to_datetime(df['timestamp'], dayfirst=True, errors='coerce')
+        return df.dropna(subset=['timestamp'])
+    except: return None
+
+def get_dist(p1, p2):
+    return ((p1[0]-p2[0])*2 + (p1[1]-p2[1])2)*0.5
+
+@st.cache_resource
+def get_map():
+    return ox.graph_from_point((19.0760, 72.8777), dist=8000, network_type='drive')
+
+# --- 2. EXECUTION ---
+st.title("🚛 AI Multi-Fleet Mission Control")
+df = load_data()
+
+if df is not None:
+    # Sidebar
+    st.sidebar.header("🕹 Dispatch Controls")
+    selected_truck = st.sidebar.selectbox("Select Active Truck", list(GARAGES.keys()))
+    threshold = st.sidebar.slider("Fill Threshold (%)", 0, 100, 75)
     
-    solved_status, m = st.session_state.route_map_status
+    # Simulation Slider
+    times = sorted(df['timestamp'].unique())
+    default_time = times[int(len(times)*0.85)]
+    sim_time = st.sidebar.select_slider("Select Time", options=times, value=default_time)
+    
+    df_snap = df[df['timestamp'] == sim_time].copy()
 
-    if m:
-        st.write("### Optimized Route Map")
-        st_folium(m, key="stable_route_map_key", width=725, height=500)
+    # Assignment logic
+    def assign_truck(row):
+        loc = (row['lat'], row['lon'])
+        dists = {name: get_dist(loc, coords) for name, coords in GARAGES.items()}
+        return min(dists, key=dists.get)
+
+    df_snap['assigned_truck'] = df_snap.apply(assign_truck, axis=1)
+    
+    # Filter bins for selected truck
+    all_my_bins = df_snap[(df_snap['assigned_truck'] == selected_truck) & (df_snap['fill'] >= threshold)]
+    all_my_bins = all_my_bins.sort_values('fill', ascending=False)
+
+    # Multi-Trip Pipeline
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📦 Trip Pipeline")
+    bins_per_trip = 8
+    total_pending = len(all_my_bins)
+    num_trips = (total_pending // bins_per_trip) + (1 if total_pending % bins_per_trip > 0 else 0)
+    
+    if num_trips > 0:
+        trip_num = st.sidebar.selectbox(f"Select Trip (Total: {num_trips})", 
+                                        range(1, num_trips + 1), 
+                                        format_func=lambda x: f"Trip {x}")
+        start_idx = (trip_num - 1) * bins_per_trip
+        current_mission_bins = all_my_bins.iloc[start_idx : start_idx + bins_per_trip]
     else:
-        st.write("Click the button above to calculate and display the route.")
+        current_mission_bins = pd.DataFrame()
+
+    # Metrics
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Vehicle", selected_truck)
+    c2.metric("Total Bins for Truck", total_pending)
+    c3.metric("Current Trip Stops", len(current_mission_bins))
+
+    # --- 3. MAP ---
+    try:
+        G = get_map()
+        m = folium.Map(location=[19.0760, 72.8777], zoom_start=12, tiles="CartoDB positron")
+
+        # Plot Bins
+        for _, row in df_snap.iterrows():
+            is_full = row['fill'] >= threshold
+            is_mine = row['assigned_truck'] == selected_truck
+            
+            # Check if this bin is in the current trip (handle missing bin_id gracefully)
+            is_in_current = False
+            if not current_mission_bins.empty and 'bin_id' in row:
+                is_in_current = row['bin_id'] in current_mission_bins['bin_id'].values
+            
+            if is_full and is_mine and is_in_current: color = 'red'
+            elif is_full and is_mine and not is_in_current: color = 'blue'
+            elif is_full and not is_mine: color = 'orange'
+            else: color = 'green'
+            
+            folium.Marker([row['lat'], row['lon']], 
+                          icon=folium.Icon(color=color, icon='trash', prefix='fa')).add_to(m)
+
+        # Draw Current Route
+        garage_loc = GARAGES[selected_truck]
+        if not current_mission_bins.empty:
+            pts = [garage_loc] + list(zip(current_mission_bins['lat'], current_mission_bins['lon'])) + [DEONAR_DUMPING]
+            path_coords = []
+            for i in range(len(pts)-1):
+                try:
+                    n1 = ox.nearest_nodes(G, pts[i][1], pts[i][0])
+                    n2 = ox.nearest_nodes(G, pts[i+1][1], pts[i+1][0])
+                    route = nx.shortest_path(G, n1, n2, weight='length')
+                    path_coords.extend([[G.nodes[node]['y'], G.nodes[node]['x']] for node in route])
+                except:
+                    path_coords.append([pts[i][0], pts[i][1]])
+                    path_coords.append([pts[i+1][0], pts[i+1][1]])
+            
+            if path_coords:
+                folium.PolyLine(path_coords, color="#3498db", weight=6, opacity=0.8).add_to(m)
+
+        folium.Marker(garage_loc, icon=folium.Icon(color='blue', icon='truck', prefix='fa')).add_to(m)
+        folium.Marker(DEONAR_DUMPING, icon=folium.Icon(color='black', icon='home', prefix='fa')).add_to(m)
+
+        st_folium(m, width=1200, height=550, key="mission_map")
+
+        # --- 4. QR CODE ---
+        if not current_mission_bins.empty:
+            st.subheader(f"📲 Driver QR: Trip {trip_num}")
+            google_url = f"https://www.google.com/maps/dir/?api=1&origin={garage_loc[0]},{garage_loc[1]}&destination={DEONAR_DUMPING[0]},{DEONAR_DUMPING[1]}&waypoints=" + "|".join([f"{lat},{lon}" for lat, lon in zip(current_mission_bins['lat'], current_mission_bins['lon'])]) + "&travelmode=driving"
+            
+            q_col, t_col = st.columns([1, 4])
+            with q_col:
+                qr = qrcode.make(google_url)
+                buf = BytesIO()
+                qr.save(buf)
+                st.image(buf, width=200)
+            with t_col:
+                st.success(f"Trip {trip_num} ready for Driver Dispatch.")
+                st.info("The Blue markers on the map represent the bins queued for the next trip!")
+
+    except Exception as e:
+        st.error(f"Mapping Error: {e}")
+else:
+    st.error("Missing Data: Please ensure 'data.csv' is uploaded.")
 
 # --- Impact & Financial Analysis Page (New Section) ---
 elif page == "Impact & Financial Analysis":
