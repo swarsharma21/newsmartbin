@@ -40,6 +40,14 @@ def load_data():
     return df
 
 df = load_data()
+GARAGES = {
+    "Truck 1 (Worli)": (19.0178, 72.8478),
+    "Truck 2 (Bandra)": (19.0596, 72.8295),
+    "Truck 3 (Andheri)": (19.1136, 72.8697),
+    "Truck 4 (Kurla)": (19.0726, 72.8844),
+    "Truck 5 (Borivali)": (19.2307, 72.8567)
+}
+DEONAR_DUMPING = (19.0550, 72.9250)
 
 # --- Sidebar Navigation ---
 st.sidebar.title("Navigation")
