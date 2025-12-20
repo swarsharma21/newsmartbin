@@ -24,7 +24,19 @@ def load_data():
         st.error("Error: 'data.csv' not found. Using dummy data.")
         # Create a dummy DataFrame to prevent script crash
         df = pd.DataFrame({
-            df['timestamp'] = pd.to_datetime(df['timestamp'], dayfirst=True, errors='coerce')
+            df = pd.DataFrame({
+            'timestamp': pd.to_datetime(['2025-01-01 10:00:00']), 
+            'bin_id': ['B101'], 
+            'hour_of_day': [10], 
+            'day_of_week': ['Monday'], 
+            'ward': ['Ward_A'], 
+            'area_type': ['Residential'], 
+            'time_since_last_pickup': [24], 
+            'bin_fill_percent': [50], 
+            'bin_capacity_liters': [1000],
+            'bin_location_lat': [19.0760],
+            'bin_location_lon': [72.8777]
+        }) # <--- CHECK IF THIS IS MISSING
             'bin_id': ['B101'], 
             'hour_of_day': [10], 
             'day_of_week': ['Monday'], 
