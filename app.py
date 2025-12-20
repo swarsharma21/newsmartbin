@@ -24,7 +24,7 @@ def load_data():
         st.error("Error: 'data.csv' not found. Using dummy data.")
         # Create a dummy DataFrame to prevent script crash
         df = pd.DataFrame({
-            df = pd.DataFrame({
+            
             'timestamp': pd.to_datetime(['2025-01-01 10:00:00']), 
             'bin_id': ['B101'], 
             'hour_of_day': [10], 
