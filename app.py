@@ -16,47 +16,35 @@ import os
 # --- 1. Page Configuration ---
 st.set_page_config(page_title="Smart Bin Analytics", layout="wide")
 
-# Constants for New Route Logic
-GARAGES = {
-    "Truck 1 (Worli)": (19.0178, 72.8478),
-    "Truck 2 (Bandra)": (19.0596, 72.8295),
-    "Truck 3 (Andheri)": (19.1136, 72.8697),
-    "Truck 4 (Kurla)": (19.0726, 72.8844),
-    "Truck 5 (Borivali)": (19.2307, 72.8567)
-}
-DEONAR_DUMPING = (19.0550, 72.9250)
-
-# REPAIRED MATH FUNCTION (Fixed syntax for squaring)
-def get_dist(p1, p2):
-    return ((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)**0.5
-
-# --- 2. Load Data ---
 @st.cache_data
 def load_data():
     try:
-        df = pd.read_csv('data.csv')
-        df.columns = [c.strip().lower() for c in df.columns]
-        rename_dict = {
-            'bin_location_lat': 'lat', 'bin_location_lon': 'lon',
-            'bin_fill_percent': 'fill', 'bin_id': 'bin_id'
-        }
-        for old, new in rename_dict.items():
-            if old in df.columns: df = df.rename(columns={old: new})
-        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
-        return df.dropna(subset=['timestamp'])
-    except:
-        return None
-
-@st.cache_resource
-def get_map_graph():
-    return ox.graph_from_point((19.0760, 72.8777), dist=8000, network_type='drive')
+        df = pd.read_csv('smart_bin_historical_data.csv')
+    except FileNotFoundError:
+        st.error("Error: 'smart_bin_historical_data.csv' not found. Using dummy data.")
+        # Create a dummy DataFrame to prevent script crash
+        df = pd.DataFrame({
+            'timestamp': pd.to_datetime(['2025-01-01 10:00:00']), 
+            'bin_id': ['B101'], 
+            'hour_of_day': [10], 
+            'day_of_week': ['Monday'], 
+            'ward': ['Ward_A'], 
+            'area_type': ['Residential'], 
+            'time_since_last_pickup': [24], 
+            'bin_fill_percent': [50], 
+            'bin_capacity_liters': [1000],
+            'bin_location_lat': [19.0760],
+            'bin_location_lon': [72.8777]
+        })
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    return df
 
 df = load_data()
 
-# --- 3. Sidebar Navigation ---
+# --- Sidebar Navigation ---
 st.sidebar.title("Navigation")
+# FIX: Added "Impact & Financial Analysis" to the list below
 page = st.sidebar.radio("Go to", ["Home", "Exploratory Data Analysis", "Predictive Model", "Route Optimization", "Impact & Financial Analysis"])
-
 # --- 4. Page Logic ---
 
 if page == "Home":
